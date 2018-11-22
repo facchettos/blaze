@@ -1,0 +1,20 @@
+syntax = "proto3";
+package networkproto`;
+
+
+// MessageType possibilities include but are not limited to :
+//  "connrequest"
+//  "connChallenge"
+//  "challengeAnswer"
+//  "ACK"
+//  "NACK"
+//  "EOF"
+message ACKNACK{
+  string MessageType = 1;
+  uint64  ACK = 2;
+  repeated uint64 NACKs = 3;
+  bytes Hash=4;
+  bytes ToDecrypt=5;
+  string keyToUse=6;
+
+}
