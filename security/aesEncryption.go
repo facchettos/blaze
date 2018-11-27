@@ -94,7 +94,7 @@ func StreamWriter(inPipe *io.PipeReader, key []byte, pipeWriter *io.PipeWriter) 
 
 //StreamReaderDecrypt decrypt the stream coming from the pipe using the key,
 // and writes it to the destination file
-func StreamReaderDecrypt(readPipe *io.PipeReader, destinationFile string, key []byte) {
+func StreamReaderDecrypt(readPipe *io.PipeReader, outpipe *io.PipeWriter, key []byte) {
 
 	block, err := aes.NewCipher(key)
 
@@ -106,19 +106,16 @@ func StreamReaderDecrypt(readPipe *io.PipeReader, destinationFile string, key []
 
 	stream := cipher.NewCTR(block, iv[:])
 
-	outFile, err := os.OpenFile(destinationFile+".tmp", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-
 	if err != nil {
 		panic(err)
 	}
 
-	defer outFile.Close()
-
 	reader := &cipher.StreamReader{S: stream, R: readPipe}
 
-	if _, err := io.Copy(outFile, reader); err != nil {
+	if _, err := io.Copy(outpipe, reader); err != nil {
 		panic(err)
 	}
+	outpipe.Close()
 	// fmt.Println(os.Rename(destinationFile+".tmp", destinationFile))
 }
 
