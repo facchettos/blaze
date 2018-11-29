@@ -11,6 +11,7 @@ import (
 	"log"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/golang/protobuf/proto"
@@ -71,6 +72,22 @@ func connectionHandler(channel chan net.Conn, rsaKey *rsa.PublicKey) {
 
 		}
 		i.Close()
+	}
+}
+
+func udpListener(port int, address net.Addr) {
+	packetConn, err := net.Listen("udp", ":"+strconv.Itoa(port))
+	defer packetConn.Close()
+	if err != nil {
+		return
+	}
+	conn, _ := packetConn.Accept()
+	defer conn.Close()
+	if strings.Split(conn.RemoteAddr().String(), ":")[0] != strings.Split(address.String(), ":")[0] {
+		conn.Close()
+	}
+	for {
+		//TODO
 	}
 }
 
