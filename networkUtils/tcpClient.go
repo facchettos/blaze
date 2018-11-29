@@ -1,14 +1,14 @@
 package networkUtils
 
 import (
-	"blaze/networkUtils/networkproto"
 	"blaze/security"
 	"crypto/rsa"
+	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
-
-	"github.com/golang/protobuf/proto"
+	"time"
 )
 
 //EstablishConnection returns a tcp connection to the address given
@@ -25,33 +25,50 @@ func EstablishConnection(address string) (*net.TCPConn, error) {
 	return conn, nil
 }
 
-//GetChallenge sends the private key name and gets back the challenge
-func GetChallenge(conn *net.TCPConn, keyName string) []byte {
-	request := &networkproto.ACKNACK{
-		MessageType: "connrequest",
-		KeyToUse:    keyName,
-	}
-	marshalled, err := proto.Marshal(request)
+func TcpClient(privateKey *rsa.PrivateKey) {
+	conn, err := EstablishConnection("localhost:8080")
 	if err != nil {
-		fmt.Println("Error while marshalling the getchallenge request")
-		return nil
-	}
-	WriteProto(conn, marshalled)
-
-	return ReadProto(conn).GetToDecrypt()
-}
-
-// SendChallengeAnswer decrypt the key, and sends back the hash of it
-func SendChallengeAnswer(challenge []byte, privateKey *rsa.PrivateKey, conn *net.TCPConn) {
-	decryptedkey := security.DoChallenge(challenge, privateKey)
-	answer := &networkproto.ACKNACK{
-		MessageType: "challengeanswer",
-		Hash:        security.ComputeHash(decryptedkey),
-	}
-	marshalled, err := proto.Marshal(answer)
-	if err != nil {
-		fmt.Println("Problem during protobuf marshalling")
+		fmt.Println("impossible to connect to remote host")
 		return
 	}
-	WriteProto(conn, marshalled)
+	aesKey := doChallenge(privateKey, conn)
+	fmt.Println("the key is: " + hex.EncodeToString(aesKey))
+}
+
+func doChallenge(privateKey *rsa.PrivateKey, conn net.Conn) []byte {
+
+	buffForSize := make([]byte, 2)
+	n, err := conn.Read(buffForSize)
+	if err != nil || n != 2 {
+		return nil
+	}
+	numberToRead := binary.LittleEndian.Uint16(buffForSize)
+	conn.SetReadDeadline(time.Now().Add(time.Second * 2))
+	buff := make([]byte, 0)
+	tempBuff := make([]byte, numberToRead)
+	bytesRead := 0
+	fmt.Print("number to read is: ")
+	fmt.Println(numberToRead)
+	for uint16(bytesRead) != numberToRead {
+		n, err = conn.Read(tempBuff)
+		bytesRead += n
+		fmt.Println(bytesRead)
+		if err != nil {
+			fmt.Println("problem while reading from the connection")
+			return nil
+		}
+		buff = append(buff, tempBuff...)
+		tempBuff = make([]byte, numberToRead-uint16(bytesRead))
+	}
+
+	if err != nil || uint16(n) != numberToRead {
+		return nil
+	}
+
+	aeskey := security.DoChallenge(buff[:n], privateKey)
+	fmt.Println("decryption gave: " + hex.EncodeToString(aeskey))
+	aeshash := security.ComputeHash(aeskey)
+	fmt.Println("hash from client is: " + hex.EncodeToString(aeshash))
+	conn.Write(aeshash)
+	return aeskey
 }

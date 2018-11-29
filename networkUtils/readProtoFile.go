@@ -10,7 +10,7 @@ import (
 )
 
 // ReadProto reads a from a connection and return a protobuf object
-func ReadProto(conn *net.TCPConn) *networkproto.ACKNACK {
+func ReadProto(conn net.Conn) *networkproto.ACKNACK {
 	buff := make([]byte, 4)
 	bytesRead, err := conn.Read(buff)
 	if err != nil || bytesRead != 4 {
@@ -33,9 +33,4 @@ func ReadProto(conn *net.TCPConn) *networkproto.ACKNACK {
 	answer := &networkproto.ACKNACK{}
 	proto.Unmarshal(protoFromConn, answer)
 	return answer
-}
-
-func ReadProtoEncrypted(conn *net.TCPConn, marshalled, key []byte) *networkproto.ACKNACK {
-	// TODO: read length, read iv, decrypt payload , remove padding, return
-	return nil
 }

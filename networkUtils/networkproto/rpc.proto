@@ -1,5 +1,5 @@
 syntax = "proto3";
-package networkproto`;
+package networkproto;
 
 
 // MessageType possibilities include but are not limited to :
@@ -9,6 +9,12 @@ package networkproto`;
 //  "ACK"
 //  "NACK"
 //  "EOF"
+message FILEINFOS{
+  string name =1;
+  uint64 size =2;
+  string location=3;
+}
+
 message ACKNACK{
   string MessageType = 1;
   uint64  ACK = 2;
@@ -16,5 +22,4 @@ message ACKNACK{
   bytes Hash=4;
   bytes ToDecrypt=5;
   string keyToUse=6;
-
 }

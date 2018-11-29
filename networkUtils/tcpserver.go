@@ -5,15 +5,18 @@ import (
 	"blaze/security"
 	"bytes"
 	"crypto/rsa"
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net"
 	"strconv"
+	"time"
 
 	"github.com/golang/protobuf/proto"
 )
 
-func ListenRequest(port int) error {
+func ListenRequest(port int, rsakey *rsa.PublicKey) error {
 	serverConn, err := net.Listen("tcp", ":"+strconv.Itoa(port))
 	if err != nil {
 		return err
@@ -22,7 +25,7 @@ func ListenRequest(port int) error {
 	channel := make(chan net.Conn, 10)
 
 	for i := 0; i < 5; i++ {
-		go connectionHandler(channel)
+		go connectionHandler(channel, rsakey)
 	}
 
 	for {
@@ -35,9 +38,38 @@ func ListenRequest(port int) error {
 	}
 }
 
-func connectionHandler(channel chan net.Conn) {
+func sendChallenge(conn net.Conn, rsaKey *rsa.PublicKey) bool {
+	aeskey := security.CreateAESKey()
+	fmt.Println("key from server is : " + hex.EncodeToString(aeskey))
+	aeshash := security.ComputeHash(aeskey)
+	fmt.Println("hash from server is : " + hex.EncodeToString(aeshash))
+	binarySize := make([]byte, 2)
+	encryptedKey := security.EncryptWithPublicKey(aeskey, rsaKey)
+	binary.LittleEndian.PutUint16(binarySize, uint16(len(encryptedKey)))
+	conn.Write(binarySize)
+	conn.Write(encryptedKey)
+	//set the deadline to 5 seconds, passed this delay, the connection will fail
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	readbuffer := make([]byte, 32)
+	_, err := conn.Read(readbuffer)
+	//reset the deadline,
+	conn.SetReadDeadline(time.Time{})
+	if bytes.Equal(aeshash, readbuffer) && err == nil {
+		fmt.Println("challenge success, they have the private key")
+		return true
+	}
+	fmt.Println("challenge failed, either wrong key or connection timeout")
+	return false
+}
+
+func connectionHandler(channel chan net.Conn, rsaKey *rsa.PublicKey) {
 	for i := range channel {
-		i.Write([]byte("toto\n"))
+
+		if !sendChallenge(i, rsaKey) {
+			i.Close()
+		} else {
+
+		}
 		i.Close()
 	}
 }
