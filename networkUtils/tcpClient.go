@@ -61,6 +61,8 @@ func doChallenge(privateKey *rsa.PrivateKey, conn net.Conn) []byte {
 		tempBuff = make([]byte, numberToRead-uint16(bytesRead))
 	}
 
+	conn.SetReadDeadline(time.Time{})
+
 	if err != nil || uint16(n) != numberToRead {
 		return nil
 	}
