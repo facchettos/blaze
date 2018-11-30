@@ -31,6 +31,9 @@ func ReadProto(conn net.Conn) *networkproto.ACKNACK {
 		}
 	}
 	answer := &networkproto.ACKNACK{}
-	proto.Unmarshal(protoFromConn, answer)
+	err = proto.Unmarshal(protoFromConn, answer)
+	if err != nil {
+		return nil
+	}
 	return answer
 }

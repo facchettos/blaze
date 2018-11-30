@@ -17,6 +17,7 @@ import (
 	"github.com/golang/protobuf/proto"
 )
 
+// ListenRequest listens for incoming tcp connections
 func ListenRequest(port int, rsakey *rsa.PublicKey) error {
 	serverConn, err := net.Listen("tcp", ":"+strconv.Itoa(port))
 	if err != nil {
