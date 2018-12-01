@@ -14,6 +14,10 @@ import (
 	"time"
 )
 
+//CLIENT TAKES care of the sending. a user could trigger a
+// file retrieval from the client application
+// and then would be considered as the server
+
 //EstablishConnection returns a tcp connection to the address given
 func EstablishConnection(address string) (*net.TCPConn, error) {
 	tcpaddress, err := net.ResolveTCPAddr("tcp", address)
@@ -102,7 +106,8 @@ func doChallenge(privateKey *rsa.PrivateKey, conn net.Conn) []byte {
 }
 
 func sendChunksToChannel(filename string, channel chan []byte, buffsize int, key [aes.BlockSize]byte) {
-	// make buffsize to be a multiple of 16, to ensure that encrypted packet does fit into it
+	// make buffsize to be a multiple of 16, to ensure
+	//  that encrypted packet size is the same than the buffer's
 	buffsize16 := buffsize - (buffsize % 16)
 	pr, pw := io.Pipe()
 	pr2, pw2 := io.Pipe()
@@ -122,9 +127,9 @@ func sendChunksToChannel(filename string, channel chan []byte, buffsize int, key
 
 type order struct {
 	orderType    uint16
-	packetNumber []uint64
-	from         uint64
-	to           uint64
+	packetNumber []uint64 // corresponds to a NACK
+	from         uint64   // corresponds to an ACK
+	to           uint64   // corresponds to an ACK
 }
 
 const send = 1
@@ -149,43 +154,71 @@ func packetBuffHandler(
 
 	packetBuff := make([][]byte, numbOfPackets)
 	var packetIndex uint64
-	var numberOfBufferedPackets uint64
+	var buffedPackets uint64
 	var firstPacketIndex uint64
 	packetIndex = 0
-	numberOfBufferedPackets = 0
+	buffedPackets = 0
 	firstPacketIndex = 0
 
 Loop:
 	for {
 		select {
-		case order := <-orders:
-			if order.orderType == send {
-				for _, n := range order.packetNumber {
-					chanOut <- packetBuff[n]
-				}
-			} else if order.orderType == remove {
-				for i := order.from; i <= order.to; i++ {
-					packetBuff[i] = nil
-					numberOfBufferedPackets++
-				}
-				if order.from == firstPacketIndex {
-					for packetBuff[firstPacketIndex] == nil {
-						firstPacketIndex++
-					}
-				}
-			} else if order.orderType == done {
+		case orderFromChan := <-orders:
+			if orderFromChan.orderType != done {
+				buffedPackets, firstPacketIndex, packetBuff =
+					handlerOrder(orderFromChan,
+						packetBuff,
+						buffedPackets,
+						firstPacketIndex,
+						chanOut)
+			} else {
 				break Loop
 			}
-
-			fmt.Println(order)
 		default:
-			if numberOfBufferedPackets <= maxBuff {
-				packet := <-packets
-				packetBuff[packetIndex] = packet
-				packetIndex++
-				numberOfBufferedPackets++
-				chanOut <- packet
+			buffedPackets, packetIndex = continueSending(buffedPackets,
+				maxBuff,
+				packetIndex,
+				packets,
+				chanOut,
+				packetBuff)
+		}
+	}
+}
+
+func handlerOrder(order order, packetBuff [][]byte, buffedPackets uint64,
+	firstPacketIndex uint64, chanOut chan []byte) (uint64, uint64, [][]byte) {
+	if order.orderType == send {
+		for _, n := range order.packetNumber {
+			chanOut <- packetBuff[n]
+		}
+	} else if order.orderType == remove {
+		for i := order.from; i <= order.to; i++ {
+			packetBuff[i] = nil
+			buffedPackets--
+		}
+		if order.from == firstPacketIndex {
+			for packetBuff[firstPacketIndex] == nil {
+				firstPacketIndex++
 			}
 		}
 	}
+	return buffedPackets, firstPacketIndex, packetBuff
+}
+
+func continueSending(
+	buffedPackets,
+	maxBuff,
+	packetIndex uint64,
+	packets chan []byte,
+	chanOut chan []byte,
+	packetBuff [][]byte) (uint64, uint64) {
+
+	if buffedPackets <= maxBuff {
+		packet := <-packets
+		packetBuff[packetIndex] = packet
+		packetIndex++
+		buffedPackets++
+		chanOut <- packet
+	}
+	return buffedPackets, packetIndex
 }
