@@ -6,7 +6,7 @@ import (
 )
 
 // WriteProto writes proto object's size and the object itself
-func WriteProto(conn *net.TCPConn, marshalled []byte) {
+func WriteProto(conn *net.TCPConn, marshalled, iv []byte) {
 	bs := make([]byte, 4)
 	binary.LittleEndian.PutUint32(bs, uint32(len(marshalled)))
 	conn.Write(bs)
