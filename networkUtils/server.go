@@ -8,8 +8,11 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"log"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -119,7 +122,7 @@ func handleConnRequest(publicKey *rsa.PublicKey, conn *net.TCPConn) (accepted bo
 	return bytes.Equal(challengeanswer.GetHash(), hash), aeskey
 }
 
-func createACK(conn *net.TCPConn, blockNumber uint64) ([]byte, error) {
+func createACK(blockNumber uint64) ([]byte, error) {
 	ack := &networkproto.ACKNACK{
 		MessageType: "ACK",
 		ACK:         blockNumber,
@@ -136,28 +139,217 @@ func createNACK(nonReceived []uint64) ([]byte, error) {
 	return proto.Marshal(nacks)
 }
 
-type receivedChunksIndex struct {
-	startIndex      uint64
-	highestReceived uint64
-	receivedIndex   []bool
-	lastACK         uint64
-	blockSize       uint32
-}
-
-func newIndex(size uint64, blockSize uint32) receivedChunksIndex {
-	return receivedChunksIndex{0, 0, make([]bool, size), 0, blockSize}
-}
-
-func (index receivedChunksIndex) update(chunkid uint64) {
-	index.receivedIndex[chunkid] = true
-	if chunkid > index.highestReceived {
-		index.highestReceived = chunkid
-	}
-	for i := index.startIndex; i < chunkid; i++ {
-		if index.receivedIndex[i] == true {
-			index.startIndex = i
+func receiveUDP(packetSize, bufferSize int, conn net.Conn, chanOut chan []byte) {
+	for {
+		buff := make([]byte, bufferSize)
+		n, err := conn.Read(buff)
+		if err == nil {
+			chanOut <- buff[:n]
 		} else {
-			return
+			fmt.Println("something went wrong with reading the packet")
+			close(chanOut)
+			break
 		}
 	}
+}
+
+type receivedChunksIndex struct {
+	lastWrite               uint64
+	highestBuffered         uint64
+	numberOfBufferedPackets uint64
+	buff                    [][]byte
+	buffSize                uint64
+	blockSize               int
+	dropHigherThanHighest   bool
+	receivedFirst           bool
+}
+
+func (buffer receivedChunksIndex) packetsToWrite(packet []byte) [][]byte {
+	if getPacketNumber(packet) == 0 {
+		buffer.receivedFirst = true
+	}
+	toWrite := make([][]byte, 0)
+
+	buffer.Buffer(packet)
+	buffer.numberOfBufferedPackets++
+
+	for {
+		toWrite = append(toWrite, buffer.buff[buffer.lastWrite+1])
+		buffer.buff[buffer.lastWrite+1] = nil
+		buffer.numberOfBufferedPackets--
+		buffer.lastWrite++
+		if buffer.numberOfBufferedPackets < buffer.buffSize {
+			buffer.dropHigherThanHighest = false
+		}
+		if buffer.lastWrite%uint64(buffer.blockSize) == 0 && buffer.lastWrite != 0 {
+			//TODO send ACK for block
+			ack, err := createACK(buffer.lastWrite - uint64(buffer.blockSize))
+			if err == nil {
+				fmt.Println(ack)
+				fmt.Println("created ack")
+				//TODO send ack
+			} else {
+				fmt.Println("problem while marshalling ack")
+			}
+		}
+
+		// if packet is last of file, return
+		if buffer.lastWrite == uint64(len(buffer.buff))-1 {
+			return toWrite
+		}
+
+		//if next packet hasnt arrived yet, return
+		if buffer.buff[buffer.lastWrite+1] == nil {
+			return toWrite
+		}
+	}
+}
+
+func (buffer receivedChunksIndex) Buffer(packet []byte) {
+
+	if !(getPacketNumber(packet) > buffer.highestBuffered && buffer.dropHigherThanHighest) {
+		buffer.buff[getPacketNumber(packet)] = packet[:len(packet)-8]
+		buffer.numberOfBufferedPackets++
+		if buffer.numberOfBufferedPackets >= buffer.buffSize {
+			buffer.dropHigherThanHighest = true
+		}
+		fmt.Println(buffer.highestBuffered)
+		//TODO check for nack
+	} else {
+		//send NACK for missing packets
+		nonReceived := make([]uint64, 0)
+		for i := buffer.lastWrite; i < buffer.highestBuffered; i++ {
+			if buffer.buff[i] == nil {
+				nonReceived = append(nonReceived, uint64(i))
+			}
+		}
+		nack, err := createNACK(nonReceived)
+		if err == nil {
+			fmt.Println(nack)
+			fmt.Println("created nack")
+			//TODO send NACK
+		} else {
+			fmt.Println("error while marshalling nack")
+		}
+
+	}
+}
+
+func getPacketNumber(packet []byte) uint64 {
+
+	return binary.LittleEndian.Uint64(packet[len(packet)-8:])
+}
+
+func writer(chanIn chan []byte, chanOut chan bool, fileSize uint64, pipeOut *io.PipeWriter) {
+	buff := make([]bool, fileSize)
+	var lastWrite uint64
+	//last write takes the max value of uint64 so uint+1 == 0
+	lastWrite = ^uint64(0)
+	for packet := range chanIn {
+		packetNumber := getPacketNumber(packet)
+		before, after := findFileBeforeAfter(packetNumber)
+		if buff[packetNumber] == false {
+			if packetNumber != lastWrite+1 {
+				writeToDisk(packet[:len(packet)-8], packetNumber, before, after)
+			} else {
+				lastWrite = writeToPipe(pipeOut, packet[:len(packet)-8], after)
+			}
+			//HANDLE NACK / ACK HERE
+			buff[packetNumber] = true
+			if lastWrite == fileSize-1 {
+				pipeOut.Close()
+				//chanout notifies higher level routine to shutdown connection and channels
+				chanOut <- true
+			}
+		}
+	}
+}
+
+func writeToPipe(pipeOut *io.PipeWriter, packet []byte, after string) uint64 {
+	pipeOut.Write(packet[:len(packet)-8])
+	var lastWrite uint64
+	lastWrite = getPacketNumber(packet)
+	if after != "" {
+		afterFile, _ := ioutil.ReadFile(after)
+		pipeOut.Write(afterFile)
+		lastWrite, _ = strconv.ParseUint(strings.Split(after, "-")[1], 10, 64)
+		os.Remove(after)
+	}
+	return lastWrite
+}
+
+func writeToDisk(packet []byte, packetNumber uint64, before string, after string) {
+	afterArray := strings.Split(after, "-")
+	suffix := afterArray[len(afterArray)-1]
+	if after == "" {
+		suffix = strconv.FormatUint(packetNumber, 36)
+	}
+	beforeArray := strings.Split(before, "-")
+	prefix := beforeArray[0]
+	var f *os.File
+	var err error
+	if before != "" {
+		f, err = os.OpenFile(before, os.O_APPEND|os.O_WRONLY, 0600)
+		if err != nil {
+			panic(err)
+		}
+
+	} else {
+		//if nothing is provide for a before file, change prefix to packet number
+		before = strconv.FormatUint(packetNumber, 36)
+		f, _ = os.OpenFile(before+"-"+
+			suffix, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+
+	}
+	_, err = f.Write(packet)
+	if err != nil {
+		fmt.Println("error while writing to file")
+	}
+	if after != "" {
+		fAfter, _ := os.Open(after)
+
+		io.Copy(f, fAfter)
+		err = fAfter.Close()
+		if err != nil {
+			fmt.Println(err)
+		}
+		os.Remove(after)
+		err = f.Close()
+		if err != nil {
+			fmt.Println("error closing file " + f.Name())
+		}
+		fmt.Println("renaming file to " + prefix + "-" + suffix)
+		os.Rename(before, prefix+"-"+
+			suffix)
+	}
+
+	if before != "" && after == "" {
+		os.Rename(before, strings.Split(before, "-")[0]+"-"+
+			strconv.FormatUint(packetNumber, 36))
+	}
+}
+
+func findFileBeforeAfter(packetNumber uint64) (before, after string) {
+	files, err := ioutil.ReadDir("./")
+	before, after = "", ""
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for _, f := range files {
+
+		if strings.Compare(strings.Split(f.Name(), "-")[len(strings.Split(f.Name(), "-"))],
+			strconv.FormatUint(packetNumber-1, 36)) == 0 && packetNumber != 0 {
+
+			before = f.Name()
+		} else if strings.Compare(strings.Split(f.Name(), "-")[0],
+			strconv.FormatUint(packetNumber+1, 36)) == 0 && packetNumber != ^uint64(0) {
+
+			after = f.Name()
+		}
+		if before != "" && after != "" {
+			break
+		}
+	}
+	return before, after
 }
