@@ -25,21 +25,25 @@ type sentChunk struct {
 	blockSize       uint32
 }
 
-func sendChunksToChannel(filename string, channel chan []byte, buffsize int, key [aes.BlockSize]byte) {
+func SendChunksToChannel(filename string, channel chan []byte, buffsize int, key [aes.BlockSize]byte) {
 	// make buffsize to be a multiple of 16, to ensure
 	//  that encrypted packet size is the same than the buffer's
-	buffsize16 := buffsize - (buffsize % 16)
+	buffsize16 := (buffsize - (buffsize % 16)) + 8
 	pr, pw := io.Pipe()
 	pr2, pw2 := io.Pipe()
 	pr3, pw3 := io.Pipe()
 	go streams.FilePiper(filename, pw)
-	go streams.PacketGenerator(pr, pw2, buffsize16)
-	go streams.PacketEncryptor(pr2, pw3, key[:])
+	go streams.PacketEncryptor(pr, pw2, key[:])
+	go streams.PacketGenerator(pr2, pw3, buffsize16)
+	i := 0
 	for {
 		buff := make([]byte, buffsize16)
 		n, err := io.ReadFull(pr3, buff)
-		channel <- buff
+		// fmt.Println(string(buff[:n]))
+		channel <- buff[:n]
+		i++
 		if err != nil || n < len(buff) {
+			close(channel)
 			return
 		}
 	}
@@ -89,10 +93,12 @@ Loop:
 func handlerOrder(order order, packetBuff [][]byte, buffedPackets uint64,
 	firstPacketIndex uint64, chanOut chan []byte) (uint64, uint64, [][]byte) {
 	if order.orderType == send {
+		//NACK
 		for _, n := range order.packetNumber {
 			chanOut <- packetBuff[n]
 		}
 	} else if order.orderType == remove {
+		//ACK
 		for i := order.from; i <= order.to; i++ {
 			packetBuff[i] = nil
 			buffedPackets--
@@ -114,7 +120,7 @@ func continueSending(
 	chanOut chan []byte,
 	packetBuff [][]byte) (uint64, uint64) {
 
-	if buffedPackets <= maxBuff {
+	if buffedPackets < maxBuff && packetIndex < uint64(len(packetBuff)) {
 		packet := <-packets
 		packetBuff[packetIndex] = packet
 		packetIndex++

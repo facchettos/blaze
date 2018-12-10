@@ -8,29 +8,37 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
+	"math/rand"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/golang/protobuf/proto"
 )
 
 // ListenRequest listens for incoming tcp connections
-func ListenRequest(port int, rsakey *rsa.PublicKey) error {
-	serverConn, err := net.Listen("tcp", ":"+strconv.Itoa(port))
+func ListenRequest(port int) error {
+	rsakey, err := security.ParseRsaPublicKeyFromPubFile("rsa.pub")
+	if err != nil {
+		fmt.Println("couldn't read the rsa public key from file")
+	}
+	tcpAddres, _ := net.ResolveTCPAddr("tcp", ":"+strconv.Itoa(port))
+	serverConn, err := net.ListenTCP("tcp", tcpAddres)
 	if err != nil {
 		return err
 	}
 
-	channel := make(chan net.Conn, 10)
+	channel := make(chan *net.TCPConn, 10)
 
 	for i := 0; i < 5; i++ {
-		go connectionHandler(channel, rsakey)
+		go connectionHandler(channel, rsakey, 32, 32)
 	}
 
 	for {
-		connection, err := serverConn.Accept()
+		connection, err := serverConn.AcceptTCP()
 		if err != nil {
 			log.Fatal(err)
 		} else {
@@ -39,7 +47,7 @@ func ListenRequest(port int, rsakey *rsa.PublicKey) error {
 	}
 }
 
-func sendChallenge(conn net.Conn, rsaKey *rsa.PublicKey) bool {
+func sendChallenge(conn net.Conn, rsaKey *rsa.PublicKey) (bool, []byte) {
 	aeskey := security.CreateAESKey()
 	fmt.Println("key from server is : " + hex.EncodeToString(aeskey))
 	aeshash := security.ComputeHash(aeskey)
@@ -57,22 +65,52 @@ func sendChallenge(conn net.Conn, rsaKey *rsa.PublicKey) bool {
 	conn.SetReadDeadline(time.Time{})
 	if bytes.Equal(aeshash, readbuffer) && err == nil {
 		fmt.Println("challenge success, they have the private key")
-		return true
+		return true, aeskey
 	}
 	fmt.Println("challenge failed, either wrong key or connection timeout")
-	return false
+	return false, nil
 }
 
-func connectionHandler(channel chan net.Conn, rsaKey *rsa.PublicKey) {
+func connectionHandler(channel chan *net.TCPConn, rsaKey *rsa.PublicKey, packetSize int, blockSize uint64) {
 	for i := range channel {
 
-		if !sendChallenge(i, rsaKey) {
+		if success, key := sendChallenge(i, rsaKey); !success {
 			i.Close()
 		} else {
 
+			fileName, fileSize := readFileNameAndSize(i)
+			var portAsString string
+			var port uint32
+			for {
+				port = (rand.Uint32() % 60000) + 2000
+				portAsString = strconv.Itoa(int(port))
+				udpAddressTest, _ := net.ResolveUDPAddr("udp", ":"+portAsString)
+				testConn, err := net.ListenUDP("udp", udpAddressTest)
+				if err == nil {
+					testConn.Close()
+					break
+				} else {
+					testConn.Close()
+				}
+			}
+
+			distantIP := strings.Split(i.RemoteAddr().String(), ":")[0]
+			go OpenUdp(packetSize, portAsString, fileSize, fileName, key, distantIP, blockSize, 1024, i)
+			binaryPort := make([]byte, 4)
+			binary.LittleEndian.PutUint32(binaryPort, port)
+			i.Write(binaryPort)
 		}
 		i.Close()
 	}
+}
+
+func readFileNameAndSize(conn *net.TCPConn) (string, uint64) {
+	buff := make([]byte, 8)
+	conn.Read(buff)
+	toRead := binary.LittleEndian.Uint64(buff)
+	packet := make([]byte, toRead)
+	io.ReadFull(conn, packet)
+	return string(packet[8:]), binary.LittleEndian.Uint64(packet[:8])
 }
 
 func handleConnRequest(publicKey *rsa.PublicKey, conn *net.TCPConn) (accepted bool, key []byte) {

@@ -37,3 +37,29 @@ func ReadProto(conn net.Conn) *networkproto.ACKNACK {
 	}
 	return answer
 }
+
+func byteToProto(protobyte []byte) *networkproto.ACKNACK {
+	res := &networkproto.ACKNACK{}
+	err := proto.Unmarshal(protobyte, res)
+	if err != nil {
+		fmt.Println("error unmarshalling protobuf")
+		return nil
+	}
+	return res
+}
+
+func convertProtoToOrder(proto *networkproto.ACKNACK, blockSize uint64) order {
+	orderFromProto := order{}
+	if proto.GetMessageType() == "NACK" {
+		orderFromProto.orderType = send
+		orderFromProto.packetNumber = proto.GetNACKs()
+
+	} else if proto.GetMessageType() == "done" {
+		orderFromProto.orderType = done
+	} else if proto.GetMessageType() == "ACK" {
+		orderFromProto.orderType = remove
+		orderFromProto.from = proto.GetACK()
+		orderFromProto.to = orderFromProto.from + blockSize
+	}
+	return orderFromProto
+}

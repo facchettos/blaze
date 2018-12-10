@@ -33,8 +33,10 @@ func PacketGenerator(pipeIn *io.PipeReader, pipeOut *io.PipeWriter, packetSize i
 	for err == nil {
 		binary.LittleEndian.PutUint64(packetNumberAsBytes, packetNumber)
 		packetNumber++
-		buffout := append(buffin, packetNumberAsBytes...)
+
+		buffout := append(buffin[:n], packetNumberAsBytes...)
 		pipeOut.Write(buffout[:n+8])
+
 		n, err = pipeIn.Read(buffin)
 		// fmt.Println("buffin length:")
 		// fmt.Println(len(buffin))

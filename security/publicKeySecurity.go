@@ -5,7 +5,10 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/sha512"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
+	"io/ioutil"
 	"log"
 )
 
@@ -26,6 +29,14 @@ func CreateKeyPairRSA() *rsa.PrivateKey {
 	return key
 }
 
+func ReadPrivateKeyFromFile(filename string) *rsa.PrivateKey {
+	f, _ := ioutil.ReadFile(filename)
+	block, _ := pem.Decode(f)
+	parsedKey, _ := x509.ParsePKCS1PrivateKey(block.Bytes)
+
+	return parsedKey
+}
+
 func ComputeHash(message []byte) []byte {
 	hash := sha256.Sum256(message)
 	return hash[:32]
@@ -44,7 +55,25 @@ func EncryptWithPublicKey(msg []byte, pub *rsa.PublicKey) []byte {
 	hash := sha512.New()
 	ciphertext, err := rsa.EncryptOAEP(hash, rand.Reader, pub, msg, nil)
 	if err != nil {
+		fmt.Println(err)
 		return nil
 	}
+	fmt.Println(len(ciphertext))
 	return ciphertext
+}
+
+func ParseRsaPublicKeyFromPubFile(fileName string) (*rsa.PublicKey, error) {
+	bytes, _ := ioutil.ReadFile(fileName)
+
+	block, _ := pem.Decode(bytes)
+	if block == nil || block.Type != "PUBLIC KEY" {
+		log.Fatal("failed to decode PEM block containing public key")
+	}
+
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return pub.(*rsa.PublicKey), nil
 }

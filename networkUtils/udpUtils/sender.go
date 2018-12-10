@@ -13,10 +13,13 @@ func SendLoop(channel chan []byte, conn *net.UDPConn, interPktTime time.Duration
 		if numberOfTries > 2 {
 			interPacket += treshold
 		} else if numberOfTries == 1 {
-			interPacket -= treshold
+			if interPacket != treshold {
+				interPacket -= treshold
+			}
 		}
+		numberOfTries = 1
 		n, _ := conn.Write(toSend)
-		time.Sleep(interPacket)
+		time.Sleep(interPacket / 5)
 		for n == 0 {
 			n, _ = conn.Write(toSend)
 			numberOfTries++

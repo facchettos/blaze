@@ -1,13 +1,19 @@
 package networkUtils
 
 import (
+	udpUtils "blaze/networkUtils/udpUtils"
 	"blaze/security"
+	"crypto/aes"
 	"crypto/rsa"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -30,26 +36,110 @@ func EstablishConnection(address string) (*net.TCPConn, error) {
 }
 
 // TCPClient instantiate the tcp connection with a daemon
-func TCPClient(privateKey *rsa.PrivateKey) {
-	conn, err := EstablishConnection("localhost:8080")
+func TCPClient(fileName string,
+	packetSize uint64, address string, blockSize uint64, maxBuff uint64) {
+	conn, err := EstablishConnection(address)
 	if err != nil {
 		fmt.Println("impossible to connect to remote host")
 		return
 	}
+	privateKey := security.ReadPrivateKeyFromFile("rsa.pem")
 	aesKey := doChallenge(privateKey, conn)
+	sendFileInfos(fileName, conn, packetSize)
 	fmt.Println("the key is: " + hex.EncodeToString(aesKey))
-	buff := make([]byte, 2)
+	buff := make([]byte, 4)
 	_, err = conn.Read(buff)
 	if err != nil {
 		fmt.Println("reading from the connection to get the udp port failed")
 	}
-	udpPort := binary.LittleEndian.Uint16(buff)
-	fmt.Println(udpPort)
-	fileChannel := make(chan []byte, 5000)
-	fmt.Println(len(fileChannel))
+
+	udpPort := binary.LittleEndian.Uint32(buff)
+	fmt.Println("the udp port is: ", udpPort)
+
+	remoteAddressUDP, _ := net.ResolveUDPAddr("udp", strings.Split(address, ":")[0]+":"+strconv.Itoa(int(udpPort)))
+	udpConn, err := net.DialUDP("tcp", nil, remoteAddressUDP)
+	udpConn.SetWriteBuffer(0)
+	if err != nil {
+		fmt.Println("error while trying to dial server")
+		fmt.Println(err)
+	}
+	var keyAsArray [aes.BlockSize]byte
+	copy(keyAsArray[:], aesKey[:16])
+	SendFile(fileName, keyAsArray, blockSize, udpConn, packetSize, conn, maxBuff)
+	// SendChunksToChannel(filename string, channel chan []byte, buffsize int, key [16]byte)
 	//TODO open udp dial with the port
 	// add channel, and write files to channel
 	// readFrom file and encrypt it
+	//ADD loop for ACK
+}
+
+func SendFile(fileName string, key [aes.BlockSize]byte,
+	blockSize uint64, udpConn *net.UDPConn, packetSize uint64,
+	conn net.Conn, maxBuff uint64) {
+
+	fmt.Println("file size is: ", getFileSize(fileName, 32))
+	packetChanSender := make(chan []byte)
+	orderChan := make(chan order, 100)
+	chanToSender := make(chan []byte)
+	go udpUtils.SendLoop(chanToSender, udpConn, time.Millisecond, time.Millisecond)
+	go SendChunksToChannel(fileName, packetChanSender, 32, key)
+
+	go packetBuffHandler(orderChan, packetChanSender, chanToSender,
+		getFileSize(fileName, packetSize), maxBuff)
+
+	for {
+		messageLength := make([]byte, 8)
+		if conn != nil {
+			_, err := conn.Read(messageLength)
+			if err != nil {
+				fmt.Println("error trying to read message length")
+			}
+			size := binary.LittleEndian.Uint64(messageLength)
+			messageBuff := make([]byte, size)
+			_, err = io.ReadFull(conn, messageBuff)
+			if err != nil {
+				fmt.Println("error reading from the conn to get the message")
+			}
+
+			orderProto := byteToProto(messageBuff)
+			orderObject := convertProtoToOrder(orderProto, blockSize)
+			orderChan <- orderObject
+			if orderObject.orderType == done {
+				close(orderChan)
+				close(chanToSender)
+				fmt.Println("receiving side sent a 'done order'")
+				break
+			}
+		}
+	}
+}
+
+func sendFileInfos(fileName string, conn *net.TCPConn, packetSize uint64) {
+	tcpPacketSize := len(fileName)
+	binarySize := make([]byte, 8)
+	binary.LittleEndian.PutUint64(binarySize, uint64(tcpPacketSize+8))
+	//send the number of bytes to read
+	conn.Write(binarySize)
+	//send the filesize
+	fileSizeBinary := make([]byte, 8)
+	binary.LittleEndian.PutUint64(fileSizeBinary, getFileSize(fileName, packetSize))
+	conn.Write(fileSizeBinary)
+
+	//send the filename
+	conn.Write([]byte(fileName))
+}
+
+func getFileSize(fileName string, packetSize uint64) uint64 {
+	fi, _ := os.Stat(fileName)
+
+	// get the size
+	size := fi.Size()
+	if uint64(size)%packetSize == 0 {
+		return uint64(size) / packetSize
+	} else {
+		return (uint64(size) / packetSize) + 1
+	}
+
 }
 
 func doChallenge(privateKey *rsa.PrivateKey, conn net.Conn) []byte {
@@ -67,8 +157,8 @@ func doChallenge(privateKey *rsa.PrivateKey, conn net.Conn) []byte {
 	buff := make([]byte, 0)
 	tempBuff := make([]byte, numberToRead)
 	bytesRead := 0
-	fmt.Print("number to read is: ")
-	fmt.Println(numberToRead)
+	// fmt.Print("number to read is: ")
+	// fmt.Println(numberToRead)
 	for uint16(bytesRead) != numberToRead {
 		n, err = conn.Read(tempBuff)
 		bytesRead += n
