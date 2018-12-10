@@ -20,8 +20,9 @@ import (
 )
 
 // ListenRequest listens for incoming tcp connections
-func ListenRequest(port int) error {
+func ListenRequest(port int, blockSize uint64, packetSize int) error {
 	rsakey, err := security.ParseRsaPublicKeyFromPubFile("rsa.pub")
+
 	if err != nil {
 		fmt.Println("couldn't read the rsa public key from file")
 	}
@@ -34,7 +35,7 @@ func ListenRequest(port int) error {
 	channel := make(chan *net.TCPConn, 10)
 
 	for i := 0; i < 5; i++ {
-		go connectionHandler(channel, rsakey, 32, 32)
+		go connectionHandler(channel, rsakey, packetSize, blockSize)
 	}
 
 	for {
@@ -96,6 +97,7 @@ func connectionHandler(channel chan *net.TCPConn, rsaKey *rsa.PublicKey, packetS
 
 			distantIP := strings.Split(i.RemoteAddr().String(), ":")[0]
 			go OpenUdp(packetSize, portAsString, fileSize, fileName, key, distantIP, blockSize, 1024, i)
+
 			binaryPort := make([]byte, 4)
 			binary.LittleEndian.PutUint32(binaryPort, port)
 			i.Write(binaryPort)

@@ -19,7 +19,7 @@ func SendLoop(channel chan []byte, conn *net.UDPConn, interPktTime time.Duration
 		}
 		numberOfTries = 1
 		n, _ := conn.Write(toSend)
-		time.Sleep(interPacket / 5)
+		time.Sleep(interPacket)
 		for n == 0 {
 			n, _ = conn.Write(toSend)
 			numberOfTries++

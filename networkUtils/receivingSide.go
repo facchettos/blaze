@@ -166,8 +166,12 @@ func writer(chanIn chan []byte, chanOut chan bool,
 
 	for packet := range chanIn {
 		packetNumber := getPacketNumber(packet)
+		// fmt.Println("packetnumber: ", packetNumber)
+		// fmt.Println("udp packet received has a size of ", len(packet))
 		//to prevent a small packet reording from sending nack, a threshold is introduced
 		// only one ACK/NACK per block is sent
+		// fmt.Println(packetNumber)
+
 		if buff[packetNumber] == false {
 			if (packetNumber%blockSize >= treshold && packetNumber >= nextCheck) ||
 				packetNumber == fileSize-1 {
@@ -197,6 +201,7 @@ func writer(chanIn chan []byte, chanOut chan bool,
 			buff[packetNumber] = true
 			if lastWrite == fileSize-1 {
 				pipeOut.Close()
+				// fmt.Println(lastWrite)
 				//chanout notifies higher level routine to shutdown connection and channels
 				chanOut <- true
 			}

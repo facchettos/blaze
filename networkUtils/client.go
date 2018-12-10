@@ -77,12 +77,12 @@ func SendFile(fileName string, key [aes.BlockSize]byte,
 	blockSize uint64, udpConn *net.UDPConn, packetSize uint64,
 	conn net.Conn, maxBuff uint64) {
 
-	fmt.Println("file size is: ", getFileSize(fileName, 32))
+	fmt.Println("file size is: ", getFileSize(fileName, packetSize))
 	packetChanSender := make(chan []byte)
 	orderChan := make(chan order, 100)
 	chanToSender := make(chan []byte)
 	go udpUtils.SendLoop(chanToSender, udpConn, time.Millisecond, time.Millisecond)
-	go SendChunksToChannel(fileName, packetChanSender, 32, key)
+	go SendChunksToChannel(fileName, packetChanSender, int(packetSize), key)
 
 	go packetBuffHandler(orderChan, packetChanSender, chanToSender,
 		getFileSize(fileName, packetSize), maxBuff)
@@ -131,14 +131,14 @@ func sendFileInfos(fileName string, conn *net.TCPConn, packetSize uint64) {
 
 func getFileSize(fileName string, packetSize uint64) uint64 {
 	fi, _ := os.Stat(fileName)
-
+	actualSize := (packetSize - (packetSize % 16))
 	// get the size
 	size := fi.Size()
-	if uint64(size)%packetSize == 0 {
-		return uint64(size) / packetSize
-	} else {
-		return (uint64(size) / packetSize) + 1
+	if uint64(size)%actualSize == 0 {
+		return uint64(size) / actualSize
 	}
+
+	return (uint64(size) / actualSize) + 1
 
 }
 

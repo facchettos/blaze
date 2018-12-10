@@ -58,7 +58,6 @@ func EncryptWithPublicKey(msg []byte, pub *rsa.PublicKey) []byte {
 		fmt.Println(err)
 		return nil
 	}
-	fmt.Println(len(ciphertext))
 	return ciphertext
 }
 

@@ -27,17 +27,24 @@ func PacketGenerator(pipeIn *io.PipeReader, pipeOut *io.PipeWriter, packetSize i
 	var packetNumber uint64
 	packetNumber = 0
 	// fmt.Println("entering packetgen loop")
-	n, err := pipeIn.Read(buffin)
 	// fmt.Println(n)
 	// fmt.Println(err)
-	for err == nil {
+
+	for {
+		n, err := io.ReadFull(pipeIn, buffin)
+		fmt.Println(packetNumber)
 		binary.LittleEndian.PutUint64(packetNumberAsBytes, packetNumber)
 		packetNumber++
-
 		buffout := append(buffin[:n], packetNumberAsBytes...)
-		pipeOut.Write(buffout[:n+8])
+		// fmt.Println("buffout length= ", len(buffout))
+		// fmt.Println(n)
 
-		n, err = pipeIn.Read(buffin)
+		pipeOut.Write(buffout[:n+8])
+		if err != nil {
+			fmt.Println("err: ", err)
+			fmt.Println(n)
+			break
+		}
 		// fmt.Println("buffin length:")
 		// fmt.Println(len(buffin))
 	}
@@ -63,7 +70,7 @@ func FileShaper(pipein *io.PipeReader, filename string, buffsize int) {
 		}
 		file.Write(buff[:n-8])
 		fmt.Print("bytes read : ")
-		fmt.Println(n - 8)
+		// fmt.Println(n - 8)
 		if n < buffsize {
 			return
 		}

@@ -35,13 +35,14 @@ func SendChunksToChannel(filename string, channel chan []byte, buffsize int, key
 	go streams.FilePiper(filename, pw)
 	go streams.PacketEncryptor(pr, pw2, key[:])
 	go streams.PacketGenerator(pr2, pw3, buffsize16)
-	i := 0
+	// i := 0
 	for {
+		// fmt.Println(i)
 		buff := make([]byte, buffsize16)
 		n, err := io.ReadFull(pr3, buff)
-		// fmt.Println(string(buff[:n]))
+
 		channel <- buff[:n]
-		i++
+		// i++
 		if err != nil || n < len(buff) {
 			close(channel)
 			return
