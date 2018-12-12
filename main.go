@@ -2,14 +2,7 @@ package main
 
 import (
 	"blaze/networkUtils"
-	"blaze/networkUtils/networkproto"
-	"crypto/aes"
-	"encoding/binary"
-	"fmt"
-	"net"
 	"time"
-
-	"github.com/golang/protobuf/proto"
 )
 
 func main() {
@@ -46,7 +39,6 @@ func main() {
 	// }
 
 	// packetChanSender := make(chan []byte)
-	var key [aes.BlockSize]byte
 
 	// // go networkUtils.UdpListener(8080, "127.0.0.1", 40, 10, "testtototo", key[:])
 	// // time.Sleep(time.Second)
@@ -58,30 +50,35 @@ func main() {
 	// }()
 
 	// go networkUtils.SendChunksToChannel("flowDiagram", packetChanSender, 32, key)
-	go networkUtils.OpenUdp(1280, "8080", 491, "testNotWorking.jpg", key[:], "127.0.0.1", 200, 10, nil)
-	time.Sleep(time.Second)
-	add, _ := net.ResolveUDPAddr("udp", "127.0.0.1:8080")
-	udpconn, err := net.DialUDP("udp", nil, add)
-	if err != nil {
-		fmt.Println(err)
-	}
-	tcpaddress, _ := net.ResolveTCPAddr("tcp", ":8081")
-	tcpListener, _ := net.ListenTCP("tcp", tcpaddress)
-	tcpconnWrite, _ := net.DialTCP("tcp", nil, tcpaddress)
-	tcpConnRead, _ := tcpListener.Accept()
-	go func() {
-		time.Sleep(time.Second * 3)
-		ack := &networkproto.ACKNACK{
-			MessageType: "done",
-		}
-		toWrite, _ := proto.Marshal(ack)
-		buff := make([]byte, 8)
-		binary.LittleEndian.PutUint64(buff, uint64(len(toWrite)))
-		tcpconnWrite.Write(buff)
-		tcpconnWrite.Write(toWrite)
-	}()
 
-	networkUtils.SendFile("lock-screen.jpg", key, 200, udpconn, 1272, tcpConnRead, 20000)
+	//=================================================================================================
+	// var key [aes.BlockSize]byte
+	// go networkUtils.OpenUdp(1280, "8080", 491, "testNotWorking.jpg", key[:], "127.0.0.1", 200, 10, nil)
+	// time.Sleep(time.Second)
+	// add, _ := net.ResolveUDPAddr("udp", "127.0.0.1:8080")
+	// udpconn, err := net.DialUDP("udp", nil, add)
+	// if err != nil {
+	// 	fmt.Println(err)
+	// }
+	// tcpaddress, _ := net.ResolveTCPAddr("tcp", ":8081")
+	// tcpListener, _ := net.ListenTCP("tcp", tcpaddress)
+	// tcpconnWrite, _ := net.DialTCP("tcp", nil, tcpaddress)
+	// tcpConnRead, _ := tcpListener.Accept()
+	// go func() {
+	// 	time.Sleep(time.Second * 3)
+	// 	ack := &networkproto.ACKNACK{
+	// 		MessageType: "done",
+	// 	}
+	// 	toWrite, _ := proto.Marshal(ack)
+	// 	buff := make([]byte, 8)
+	// 	binary.LittleEndian.PutUint64(buff, uint64(len(toWrite)))
+	// 	tcpconnWrite.Write(buff)
+	// 	tcpconnWrite.Write(toWrite)
+	// }()
+
+	// networkUtils.SendFile("lock-screen.jpg", key, 200, udpconn, 1272, tcpConnRead, 20000)
+
+	//=======================================================================================
 	// go func() {
 	// 	time.Sleep(time.Second)
 	// 	conn, _ := net.Dial("udp", "127.0.0.1:8080")
@@ -93,5 +90,10 @@ func main() {
 	// networkUtils.ReceiveUDP(40, pc, packetChan, done)
 
 	// time.Sleep(time.Second)
+
+	go networkUtils.ListenRequest(8080, 1000, 1280)
+	time.Sleep(time.Second)
+	networkUtils.TCPClient("lock-screen.jpg", 1272, "127.0.0.1:8080", 100, 4000)
+	time.Sleep(time.Second)
 
 }

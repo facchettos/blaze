@@ -74,14 +74,14 @@ func sendChallenge(conn net.Conn, rsaKey *rsa.PublicKey) (bool, []byte) {
 
 func connectionHandler(channel chan *net.TCPConn, rsaKey *rsa.PublicKey, packetSize int, blockSize uint64) {
 	for i := range channel {
-
+		fileName, fileSize := readFileNameAndSize(i)
+		fileName = "testServer.jpg"
+		fmt.Println("File name is : ", fileName, " file size is: ", fileSize)
 		if success, key := sendChallenge(i, rsaKey); !success {
 			i.Close()
 		} else {
-
-			fileName, fileSize := readFileNameAndSize(i)
-			var portAsString string
 			var port uint32
+			var portAsString string
 			for {
 				port = (rand.Uint32() % 60000) + 2000
 				portAsString = strconv.Itoa(int(port))
@@ -93,16 +93,14 @@ func connectionHandler(channel chan *net.TCPConn, rsaKey *rsa.PublicKey, packetS
 				} else {
 					testConn.Close()
 				}
-			}
 
+			}
+			fmt.Println("the key is : ", hex.EncodeToString(key))
 			distantIP := strings.Split(i.RemoteAddr().String(), ":")[0]
 			go OpenUdp(packetSize, portAsString, fileSize, fileName, key, distantIP, blockSize, 1024, i)
+			sendPort(i, port)
 
-			binaryPort := make([]byte, 4)
-			binary.LittleEndian.PutUint32(binaryPort, port)
-			i.Write(binaryPort)
 		}
-		i.Close()
 	}
 }
 
@@ -151,4 +149,10 @@ type receivedChunksIndex struct {
 	blockSize               int
 	dropHigherThanHighest   bool
 	receivedFirst           bool
+}
+
+func sendPort(tcpconn *net.TCPConn, port uint32) {
+	buff := make([]byte, 4)
+	binary.LittleEndian.PutUint32(buff, port)
+	tcpconn.Write(buff)
 }

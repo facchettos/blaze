@@ -42,6 +42,8 @@ func OpenUdp(packetSize int, port string, fileSize uint64, fileName string,
 	}()
 
 	receiveUDP(packetSize, *pc, packetChan, done, authIP)
+
+	TCPconn.Close()
 	// time.Sleep(time.Second)
 }
 
@@ -197,12 +199,12 @@ func writer(chanIn chan []byte, chanOut chan bool,
 			} else {
 				lastWrite = writeToPipe(pipeOut, packet, after)
 			}
-			//HANDLE NACK / ACK HERE
 			buff[packetNumber] = true
 			if lastWrite == fileSize-1 {
 				pipeOut.Close()
 				// fmt.Println(lastWrite)
 				//chanout notifies higher level routine to shutdown connection and channels
+				conn.Close()
 				chanOut <- true
 			}
 		}

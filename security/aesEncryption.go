@@ -5,6 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -64,6 +65,8 @@ func StreamWriter(inPipe *io.PipeReader, key []byte, pipeWriter *io.PipeWriter) 
 
 	defer inPipe.Close()
 
+	fmt.Println("encrypting with key : ", hex.EncodeToString(key))
+
 	block, err := aes.NewCipher(key)
 
 	if err != nil {
@@ -97,7 +100,7 @@ func StreamWriter(inPipe *io.PipeReader, key []byte, pipeWriter *io.PipeWriter) 
 func StreamReaderDecrypt(readPipe *io.PipeReader, outpipe io.Writer, key []byte) {
 
 	block, err := aes.NewCipher(key)
-
+	fmt.Println("decrypting with key: ", hex.EncodeToString(key))
 	if err != nil {
 		panic(err)
 	}
@@ -122,10 +125,10 @@ func StreamReaderDecrypt(readPipe *io.PipeReader, outpipe io.Writer, key []byte)
 //CreateAESKey creates a new random key
 func CreateAESKey() []byte {
 	randG := rand.Reader
-	keyBuffer := make([]byte, 32)
+	keyBuffer := make([]byte, 16)
 	bytesCreated, err := randG.Read(keyBuffer)
 
-	if bytesCreated != 32 || err != nil {
+	if bytesCreated != 16 || err != nil {
 		return nil
 	}
 	return keyBuffer

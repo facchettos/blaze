@@ -39,13 +39,13 @@ func EstablishConnection(address string) (*net.TCPConn, error) {
 func TCPClient(fileName string,
 	packetSize uint64, address string, blockSize uint64, maxBuff uint64) {
 	conn, err := EstablishConnection(address)
+	sendFileInfos(fileName, conn, packetSize)
 	if err != nil {
 		fmt.Println("impossible to connect to remote host")
 		return
 	}
 	privateKey := security.ReadPrivateKeyFromFile("rsa.pem")
 	aesKey := doChallenge(privateKey, conn)
-	sendFileInfos(fileName, conn, packetSize)
 	fmt.Println("the key is: " + hex.EncodeToString(aesKey))
 	buff := make([]byte, 4)
 	_, err = conn.Read(buff)
@@ -57,14 +57,17 @@ func TCPClient(fileName string,
 	fmt.Println("the udp port is: ", udpPort)
 
 	remoteAddressUDP, _ := net.ResolveUDPAddr("udp", strings.Split(address, ":")[0]+":"+strconv.Itoa(int(udpPort)))
-	udpConn, err := net.DialUDP("tcp", nil, remoteAddressUDP)
+	udpConn, err := net.DialUDP("udp", nil, remoteAddressUDP)
+	if err != nil {
+		fmt.Println(err)
+	}
 	udpConn.SetWriteBuffer(0)
 	if err != nil {
 		fmt.Println("error while trying to dial server")
 		fmt.Println(err)
 	}
 	var keyAsArray [aes.BlockSize]byte
-	copy(keyAsArray[:], aesKey[:16])
+	copy(keyAsArray[:], aesKey)
 	SendFile(fileName, keyAsArray, blockSize, udpConn, packetSize, conn, maxBuff)
 	// SendChunksToChannel(filename string, channel chan []byte, buffsize int, key [16]byte)
 	//TODO open udp dial with the port
@@ -92,8 +95,14 @@ func SendFile(fileName string, key [aes.BlockSize]byte,
 		if conn != nil {
 			_, err := conn.Read(messageLength)
 			if err != nil {
+
+				fmt.Println(err)
 				fmt.Println("error trying to read message length")
+				conn.Close()
+				break
+
 			}
+
 			size := binary.LittleEndian.Uint64(messageLength)
 			messageBuff := make([]byte, size)
 			_, err = io.ReadFull(conn, messageBuff)
@@ -108,6 +117,10 @@ func SendFile(fileName string, key [aes.BlockSize]byte,
 				close(orderChan)
 				close(chanToSender)
 				fmt.Println("receiving side sent a 'done order'")
+				break
+			}
+			if err != nil {
+				conn.Close()
 				break
 			}
 		}
