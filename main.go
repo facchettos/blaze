@@ -91,9 +91,10 @@ func main() {
 
 	// time.Sleep(time.Second)
 
-	go networkUtils.ListenRequest(8080, 1000, 1280)
+	go networkUtils.ListenRequest(8080, 50, 1280)
 	time.Sleep(time.Second)
-	networkUtils.TCPClient("lock-screen.jpg", 1272, "127.0.0.1:8080", 100, 4000)
+	networkUtils.TCPClient("lock-screen.jpg", 1272, "127.0.0.1:8080", 50, 200)
 	time.Sleep(time.Second)
 
+	// networkUtils.TestList()
 }

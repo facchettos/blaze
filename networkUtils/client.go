@@ -88,7 +88,7 @@ func SendFile(fileName string, key [aes.BlockSize]byte,
 	go SendChunksToChannel(fileName, packetChanSender, int(packetSize), key)
 
 	go packetBuffHandler(orderChan, packetChanSender, chanToSender,
-		getFileSize(fileName, packetSize), maxBuff)
+		getFileSize(fileName, packetSize), maxBuff, blockSize)
 
 	for {
 		messageLength := make([]byte, 8)

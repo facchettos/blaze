@@ -123,7 +123,8 @@ func sendACKORNACK(received []bool, startingPoint, blockSize uint64, conn net.Co
 	var toSend []byte
 	if sendAck {
 		fmt.Println("sending ack")
-		toSend, err := createACK(startingPoint / blockSize)
+		fmt.Println(startingPoint / blockSize)
+		toSend, err := createACK((startingPoint / blockSize) * blockSize)
 		if err != nil {
 			fmt.Println("error while creating ack")
 		}
@@ -172,7 +173,7 @@ func writer(chanIn chan []byte, chanOut chan bool,
 		// fmt.Println("udp packet received has a size of ", len(packet))
 		//to prevent a small packet reording from sending nack, a threshold is introduced
 		// only one ACK/NACK per block is sent
-		// fmt.Println(packetNumber)
+		// fmt.Println("packet number is :", packetNumber)
 
 		if buff[packetNumber] == false {
 			if (packetNumber%blockSize >= treshold && packetNumber >= nextCheck) ||
