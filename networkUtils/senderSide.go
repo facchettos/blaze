@@ -6,6 +6,7 @@ import (
 	"crypto/aes"
 	"fmt"
 	"io"
+	"math/rand"
 )
 
 type order struct {
@@ -47,6 +48,7 @@ func SendChunksToChannel(filename string, channel chan []byte, buffsize int, key
 		// i++
 		if err != nil || n < len(buff) {
 			close(channel)
+			fmt.Println("finished to send to channel")
 			return
 		}
 
@@ -69,15 +71,30 @@ Loop:
 		case orderFromChan := <-orders:
 			if orderFromChan.orderType != done {
 				packetsList = handleOrderList(orderFromChan, packetsList, chanOut, blockSize)
+				for e := packetsList.Front(); e != nil; e = e.Next() {
+					fmt.Println(e.Value.(packetStruct).Number)
+				}
 			} else {
+				fmt.Println("break")
 				break Loop
 			}
 		default:
-			if packet := <-packets; uint64(packetsList.Len()) < maxBuff && packet != nil {
-
-				chanOut <- packet
+			if packet, ok := <-packets; uint64(packetsList.Len()) < maxBuff && ok {
+				fmt.Println(ok)
+				random := rand.Intn(100)
+				if random < 99 {
+					chanOut <- packet
+				}
 				packetsList.PushBack(packetStruct{getPacketNumber(packet), packet})
+			} else {
+				// fmt.Println(ok)
+				// fmt.Println("list length : ", packetsList.Len())
+				// for e := packetsList.Front(); e != nil; e = e.Next() {
+				// 	chanOut <- e.Value.(packetStruct).Payload
+				// 	fmt.Println("sending again packet: ", getPacketNumber(e.Value.(packetStruct).Payload))
+				// }
 			}
+
 		}
 	}
 }
@@ -97,11 +114,12 @@ func handleOrderList(order order, packets *list.List, chanOut chan []byte, block
 		i := 0
 
 		for e := packets.Front(); e != nil; {
-			fmt.Println(i)
 			// do something with e.Value
 			next := e.Next()
 			if e.Value.(packetStruct).Number == order.packetNumber[i] {
+				fmt.Println("resending packet number: ", getPacketNumber(e.Value.(packetStruct).Payload))
 				chanOut <- e.Value.(packetStruct).Payload
+
 				if i < len(order.packetNumber)-1 {
 					i++
 				}

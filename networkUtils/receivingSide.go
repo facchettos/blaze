@@ -169,6 +169,7 @@ func writer(chanIn chan []byte, chanOut chan bool,
 
 	for packet := range chanIn {
 		packetNumber := getPacketNumber(packet)
+		fmt.Println("packet number is :", packetNumber)
 		// fmt.Println("packetnumber: ", packetNumber)
 		// fmt.Println("udp packet received has a size of ", len(packet))
 		//to prevent a small packet reording from sending nack, a threshold is introduced
@@ -180,6 +181,7 @@ func writer(chanIn chan []byte, chanOut chan bool,
 				packetNumber == fileSize-1 {
 
 				nextCheck += blockSize
+
 				shouldIncrement := true
 				for i := start; i < packetNumber/blockSize; i++ {
 					if blockACKED[i] == false {
@@ -196,8 +198,10 @@ func writer(chanIn chan []byte, chanOut chan bool,
 
 			before, after := findFileBeforeAfter(packetNumber)
 			if packetNumber != lastWrite+1 {
+				fmt.Println("write to disk")
 				writeToDisk(packet, packetNumber, before, after)
 			} else {
+				fmt.Println("write to pipe")
 				lastWrite = writeToPipe(pipeOut, packet, after)
 			}
 			buff[packetNumber] = true
@@ -215,7 +219,7 @@ func writer(chanIn chan []byte, chanOut chan bool,
 func writeToPipe(pipeOut *io.PipeWriter, packet []byte, after string) uint64 {
 	afterArray := strings.Split(after, "/")
 	after = afterArray[len(afterArray)-1]
-	// fmt.Println(len(packet))
+	fmt.Println("writing to pipe from ", getPacketNumber(packet), strings.Split(after, "-"))
 	pipeOut.Write(packet[:len(packet)-8])
 	var lastWrite uint64
 	lastWrite = getPacketNumber(packet)
@@ -225,7 +229,7 @@ func writeToPipe(pipeOut *io.PipeWriter, packet []byte, after string) uint64 {
 		pipeOut.Write(afterFile)
 		// fmt.Println("done writing")
 
-		lastWrite, _ = strconv.ParseUint(strings.Split(after, "-")[1], 10, 64)
+		lastWrite, _ = strconv.ParseUint(strings.Split(after, "-")[1], 36, 64)
 		os.Remove(after)
 	}
 	// fmt.Println("last write:", lastWrite)
@@ -234,6 +238,8 @@ func writeToPipe(pipeOut *io.PipeWriter, packet []byte, after string) uint64 {
 
 func writeToDisk(packet []byte, packetNumber uint64, before string, after string) {
 	afterArray := strings.Split(after, "-")
+	fmt.Println(strconv.FormatUint(packetNumber, 36))
+	fmt.Println("before:", before, "after:", after)
 	suffix := afterArray[len(afterArray)-1]
 	if after == "" {
 		suffix = strconv.FormatUint(packetNumber, 36)
@@ -278,8 +284,10 @@ func writeToDisk(packet []byte, packetNumber uint64, before string, after string
 
 	if before != "" && after != "" {
 		os.Rename(before, strings.Split(before, "-")[0]+"-"+
-			strconv.FormatUint(packetNumber, 36))
+			strings.Split(after, "-")[1])
 	}
+
+	fmt.Println("filename is : ", prefix, "-", suffix)
 }
 
 func findFileBeforeAfter(packetNumber uint64) (before, after string) {
@@ -289,20 +297,24 @@ func findFileBeforeAfter(packetNumber uint64) (before, after string) {
 		log.Fatal(err)
 	}
 
+	fmt.Println("and ", strconv.FormatUint(packetNumber, 36))
 	for _, f := range files {
+		if len(strings.Split(f.Name(), "-")) == 2 {
+			if strings.Compare(strings.Split(f.Name(), "-")[1],
+				strconv.FormatUint(packetNumber-1, 36)) == 0 && packetNumber != 0 {
 
-		if strings.Compare(strings.Split(f.Name(), "-")[len(strings.Split(f.Name(), "-"))-1],
-			strconv.FormatUint(packetNumber-1, 36)) == 0 && packetNumber != 0 {
+				before = f.Name()
+			} else if strings.Compare(strings.Split(f.Name(), "-")[0],
+				strconv.FormatUint(packetNumber+1, 36)) == 0 && packetNumber != ^uint64(0) {
 
-			before = f.Name()
-		} else if strings.Compare(strings.Split(f.Name(), "-")[0],
-			strconv.FormatUint(packetNumber+1, 36)) == 0 && packetNumber != ^uint64(0) {
+				after = f.Name()
+			}
+			if before != "" && after != "" {
+				break
+			}
 
-			after = f.Name()
-		}
-		if before != "" && after != "" {
-			break
 		}
 	}
+	fmt.Println("for file ", packetNumber, " ", strconv.FormatUint(packetNumber, 36), " before and after are ", before, " ", after)
 	return before, after
 }

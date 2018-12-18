@@ -125,6 +125,7 @@ func SendFile(fileName string, key [aes.BlockSize]byte,
 			}
 		}
 	}
+	fmt.Println("SENDFILE DONE")
 }
 
 func sendFileInfos(fileName string, conn *net.TCPConn, packetSize uint64) {
