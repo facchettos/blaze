@@ -97,7 +97,7 @@ func connectionHandler(channel chan *net.TCPConn, rsaKey *rsa.PublicKey, packetS
 			}
 			fmt.Println("the key is : ", hex.EncodeToString(key))
 			distantIP := strings.Split(i.RemoteAddr().String(), ":")[0]
-			go OpenUdp(packetSize, portAsString, fileSize, fileName, key, distantIP, blockSize, 1024, i)
+			go OpenUdp(packetSize, portAsString, fileSize, fileName, key, distantIP, blockSize, 10, i)
 			sendPort(i, port)
 
 		}

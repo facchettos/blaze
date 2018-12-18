@@ -2,8 +2,11 @@ package networkUtils
 
 import (
 	streams "blaze/streamsutils"
+	"container/list"
 	"crypto/aes"
+	"fmt"
 	"io"
+	"math/rand"
 )
 
 type order struct {
@@ -45,8 +48,10 @@ func SendChunksToChannel(filename string, channel chan []byte, buffsize int, key
 		// i++
 		if err != nil || n < len(buff) {
 			close(channel)
+			fmt.Println("finished to send to channel")
 			return
 		}
+
 	}
 }
 
@@ -56,41 +61,125 @@ func packetBuffHandler(
 	packets chan []byte,
 	chanOut chan []byte,
 	numbOfPackets uint64,
-	maxBuff uint64) {
+	maxBuff, blockSize uint64) {
 
-	packetBuff := make([][]byte, numbOfPackets)
-	var packetIndex uint64
-	var buffedPackets uint64
-	var firstPacketIndex uint64
-	packetIndex = 0
-	buffedPackets = 0
-	firstPacketIndex = 0
+	packetsList := list.New()
 
 Loop:
 	for {
 		select {
 		case orderFromChan := <-orders:
 			if orderFromChan.orderType != done {
-				buffedPackets, firstPacketIndex, packetBuff =
-					handlerOrder(orderFromChan,
-						packetBuff,
-						buffedPackets,
-						firstPacketIndex,
-						chanOut)
+				packetsList = handleOrderList(orderFromChan, packetsList, chanOut, blockSize)
+				for e := packetsList.Front(); e != nil; e = e.Next() {
+					fmt.Println(e.Value.(packetStruct).Number)
+				}
 			} else {
+				fmt.Println("break")
 				break Loop
 			}
 		default:
-			buffedPackets, packetIndex = continueSending(buffedPackets,
-				maxBuff,
-				packetIndex,
-				packets,
-				chanOut,
-				packetBuff)
+			if packet, ok := <-packets; uint64(packetsList.Len()) < maxBuff && ok {
+				fmt.Println(ok)
+				random := rand.Intn(100)
+				if random < 99 {
+					chanOut <- packet
+				}
+				packetsList.PushBack(packetStruct{getPacketNumber(packet), packet})
+			} else {
+				// fmt.Println(ok)
+				// fmt.Println("list length : ", packetsList.Len())
+				// for e := packetsList.Front(); e != nil; e = e.Next() {
+				// 	chanOut <- e.Value.(packetStruct).Payload
+				// 	fmt.Println("sending again packet: ", getPacketNumber(e.Value.(packetStruct).Payload))
+				// }
+			}
+
 		}
 	}
 }
 
+type packetStruct struct {
+	Number  uint64
+	Payload []byte
+}
+
+func handleOrderList(order order, packets *list.List, chanOut chan []byte, blockSize uint64) *list.List {
+	if order.orderType == send {
+		firstPacket := order.packetNumber[0]
+		firstPOfblock := firstPacket - (firstPacket % blockSize)
+		fmt.Println(firstPOfblock)
+		//NACK
+		fmt.Println("received nack")
+		i := 0
+
+		for e := packets.Front(); e != nil; {
+			// do something with e.Value
+			next := e.Next()
+			if e.Value.(packetStruct).Number == order.packetNumber[i] {
+				fmt.Println("resending packet number: ", getPacketNumber(e.Value.(packetStruct).Payload))
+				chanOut <- e.Value.(packetStruct).Payload
+
+				if i < len(order.packetNumber)-1 {
+					i++
+				}
+			} else if e.Value.(packetStruct).Number >= firstPOfblock &&
+				e.Value.(packetStruct).Number < firstPOfblock+blockSize {
+
+				packets.Remove(e)
+			} else if e.Value.(packetStruct).Number >= firstPOfblock+blockSize {
+				break
+			}
+			e = next
+		}
+	} else if order.orderType == remove {
+		//ACK
+		fmt.Println("received ack")
+		fmt.Println("from: ", order.from)
+		fmt.Println("to: ", order.to)
+		for e := packets.Front(); e != nil; {
+			next := e.Next()
+			if e.Value.(packetStruct).Number >= order.from {
+				if e.Value.(packetStruct).Number > order.to {
+					break
+				}
+				packets.Remove(e)
+			}
+			e = next
+		}
+	}
+	return packets
+}
+
+func TestList() {
+	mylist := list.New()
+	myarray := make([]uint64, 3)
+	myarray[0] = 1
+	myarray[1] = 2
+	myarray[2] = 3
+	myorder := order{2, nil, 2, 9}
+	mylist.PushBack(packetStruct{0, nil})
+	mylist.PushBack(packetStruct{1, nil})
+	mylist.PushBack(packetStruct{2, nil})
+	mylist.PushBack(packetStruct{3, nil})
+	mylist.PushBack(packetStruct{4, nil})
+	mylist.PushBack(packetStruct{5, nil})
+	mylist.PushBack(packetStruct{6, nil})
+	mylist.PushBack(packetStruct{7, nil})
+	mylist.PushBack(packetStruct{8, nil})
+	mylist.PushBack(packetStruct{9, nil})
+	mylist.PushBack(packetStruct{10, nil})
+	mylist.PushBack(packetStruct{11, nil})
+	for e := mylist.Front(); e != nil; e = e.Next() {
+		fmt.Println(e.Value)
+	}
+	fmt.Println()
+	mylist = handleOrderList(myorder, mylist, nil, 10)
+	for e := mylist.Front(); e != nil; e = e.Next() {
+		fmt.Println(e.Value)
+	}
+
+}
 func handlerOrder(order order, packetBuff [][]byte, buffedPackets uint64,
 	firstPacketIndex uint64, chanOut chan []byte) (uint64, uint64, [][]byte) {
 	if order.orderType == send {
