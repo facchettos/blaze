@@ -38,7 +38,9 @@ func OpenUdp(packetSize int, port string, fileSize uint64, fileName string,
 
 	go func() {
 		result, _ := os.OpenFile(fileName, os.O_WRONLY|os.O_CREATE, 0600)
+		defer result.Close()
 		security.StreamReaderDecrypt(pr, result, key[:])
+
 	}()
 
 	receiveUDP(packetSize, *pc, packetChan, done, authIP)
@@ -220,16 +222,26 @@ func writeToPipe(pipeOut *io.PipeWriter, packet []byte, after string) uint64 {
 	afterArray := strings.Split(after, "/")
 	after = afterArray[len(afterArray)-1]
 	fmt.Println("writing to pipe from ", getPacketNumber(packet), strings.Split(after, "-"))
-	pipeOut.Write(packet[:len(packet)-8])
+	fmt.Println("after is ", after)
+	n, err := pipeOut.Write(packet[:len(packet)-8])
+	fmt.Println(n, err)
 	var lastWrite uint64
 	lastWrite = getPacketNumber(packet)
 	if after != "" {
+		fmt.Println("now sending the file after ", getPacketNumber(packet))
 		afterFile, _ := ioutil.ReadFile(after)
-		// fmt.Println("trying to write to pipie")
-		pipeOut.Write(afterFile)
+		fmt.Print("trying to write to pipe this much bytes ", len(afterFile), getPacketNumber(packet), " ")
+		n, err = pipeOut.Write(afterFile)
+
+		if err != nil {
+			fmt.Print("ERROR")
+		}
+		fmt.Println(err, n)
+
 		// fmt.Println("done writing")
 
 		lastWrite, _ = strconv.ParseUint(strings.Split(after, "-")[1], 36, 64)
+		fmt.Println("new last write is : ", lastWrite)
 		os.Remove(after)
 	}
 	// fmt.Println("last write:", lastWrite)
@@ -246,6 +258,9 @@ func writeToDisk(packet []byte, packetNumber uint64, before string, after string
 	}
 	beforeArray := strings.Split(before, "-")
 	prefix := beforeArray[0]
+	if before == "" {
+		prefix = strconv.FormatUint(packetNumber, 36)
+	}
 	var f *os.File
 	var err error
 	if before != "" {
@@ -260,17 +275,15 @@ func writeToDisk(packet []byte, packetNumber uint64, before string, after string
 		before = strconv.FormatUint(packetNumber, 36)
 		f, _ = os.OpenFile(before+"-"+
 			suffix, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
-
 	}
-	_, err = f.Write(packet)
+	_, err = f.Write(packet[:len(packet)-8])
 	if err != nil {
 		fmt.Println("error while writing to file")
 	}
 	if after != "" {
-		fAfter, _ := os.Open(after)
+		fAfter, _ := ioutil.ReadFile(after)
 
-		io.Copy(f, fAfter)
-		err = fAfter.Close()
+		f.Write(fAfter)
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -279,13 +292,16 @@ func writeToDisk(packet []byte, packetNumber uint64, before string, after string
 		if err != nil {
 			fmt.Println("error closing file " + f.Name())
 		}
-		fmt.Println("renaming file to " + prefix + "-" + suffix)
 	}
+	fmt.Println("renaming file to " + prefix + "-" + suffix)
 
-	if before != "" && after != "" {
-		os.Rename(before, strings.Split(before, "-")[0]+"-"+
-			strings.Split(after, "-")[1])
+	os.Rename(before, prefix+"-"+suffix)
+
+	stats, err := os.Stat(prefix + "-" + suffix)
+	if err != nil {
+		fmt.Println(err)
 	}
+	fmt.Println(stats.Size())
 
 	fmt.Println("filename is : ", prefix, "-", suffix)
 }
